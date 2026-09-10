@@ -30,9 +30,8 @@ docs/logs/
 # Go build output
 /cheap-shot
 
-# Bridge configuration and compose file hold device secrets - never commit
+# Bridge config file holds device secrets - never commit (compose.yaml has none)
 /config.json
-/compose.yaml
 
 # Unredacted firmware originals (device secrets) - kept local, never committed
 /firmware/unredacted/

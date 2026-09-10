@@ -1,9 +1,11 @@
-# cheap-shot — local Docker Compose (environment-based).
+# cheap-shot — Docker Compose (environment-based).
 #
 #   1. cp .env.example .env   and fill in your camera's did + lslat
 #      (from firmware/logical/factory_config.json — both stay local/gitignored).
 #   2. docker compose up --build
 #   3. open http://127.0.0.1:8080/  for the live dashboard.
+#
+# This file holds no secrets (they live in .env), so it is committed as-is.
 #
 # The camera credentials are read from .env at runtime and are never baked into
 # the image (.env is excluded from the build context by .dockerignore).

@@ -46,7 +46,6 @@ via environment variables or a JSON file.
 
 ```sh
 cp .env.example .env       # .env is gitignored; fill in did + lslat
-cp compose.example.yaml compose.yaml
 docker compose up --build
 ```
 
@@ -90,7 +89,7 @@ mounted config file — all of which stay local (gitignored).
 - `src/` — **the bridge** (Go, zero external dependencies). `src/cmd/cheap-shot`
   is the binary; `src/internal/pprpc` the wire format, `src/internal/camera` the
   LAN client, `src/internal/v4l2` the `/dev/video*` sink.
-- `Dockerfile`, `compose.example.yaml`, `.env.example`, `config.example.json` — containerized
+- `Dockerfile`, `compose.yaml`, `.env.example`, `config.example.json` — containerized
   deployment; the image is the static binary and nothing else.
 - `docs/findings.md` — the detailed technical writeup: device identification,
   dead ends (don't repeat these), the physical access procedure that worked,
