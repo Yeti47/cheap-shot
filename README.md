@@ -82,7 +82,7 @@ variables.
   framing, LanAuth, and the offline AES/password key derivations.
 - `firmware/cheapcam_full_2MB_dump.bin` — the 2MB flash dump, with the 240-byte
   device provisioning record (`0x1F4000`) scrubbed. The unredacted originals are
-  kept locally in `firmware-unredacted/` (gitignored).
+  kept locally in `firmware/unredacted/` (gitignored).
 - `firmware/logical/` — the **usable**, de-CRC'd images (`flash_logical.bin`
   etc.), produced from the raw dump by `tools/decrc.py`. Use these for analysis.
   `factory_config.json` (device secrets) is generated here and gitignored.
