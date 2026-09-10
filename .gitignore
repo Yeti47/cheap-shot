@@ -1,0 +1,38 @@
+# PlatformIO build artifacts
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Editor/OS cruft
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local secrets, if any ever show up
+.env
+
+# Device-unique factory credentials extracted from the dump - never commit
+firmware/logical/factory_config.json
+tools/ghidra-docker/ghidra_projects/
+
+# Local analysis virtualenv
+.venv-analysis/
+
+# UART captures contain device-unique secrets (scode/signkey/lslat) - keep local
+docs/logs/
+
+# Go build output
+/cheap-shot
+
+# Bridge configuration and compose file hold device secrets - never commit
+/config.json
+/compose.yaml
+
+# Unredacted firmware originals (device secrets) - kept local, never committed
+/firmware-unredacted/

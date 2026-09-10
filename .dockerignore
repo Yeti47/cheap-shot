@@ -1,0 +1,6 @@
+# The build context is only the Go module: keep the 2 MB firmware dumps, the
+# analysis venv and the docs out of it.
+*
+!go.mod
+!go.sum
+!src
