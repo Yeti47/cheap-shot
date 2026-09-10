@@ -23,10 +23,14 @@ type fakeCamera struct {
 
 	authedUser chan string
 	videoPlay  chan struct{}
+	wifiSet    chan wifiCreds
+	storedSSID string // last SSID set via WifiSet; returned by WifiGet
 
 	framesToSend int
 	expected     chan []byte
 }
+
+type wifiCreds struct{ ssid, pwd string }
 
 func newFakeCamera(t *testing.T, password string) *fakeCamera {
 	t.Helper()
@@ -41,6 +45,7 @@ func newFakeCamera(t *testing.T, password string) *fakeCamera {
 		sessionKey: []byte("0123456789abcdef0123456789abcdef"),
 		authedUser: make(chan string, 4),
 		videoPlay:  make(chan struct{}, 1),
+		wifiSet:    make(chan wifiCreds, 1),
 		expected:   make(chan []byte, 8),
 	}
 	t.Cleanup(func() { ln.Close() })
@@ -103,6 +108,10 @@ func (f *fakeCamera) handle(conn net.Conn) {
 					for i := range f.framesToSend {
 						f.expected <- f.sendFrame(conn, uint64(i+1))
 					}
+				case CmdWifiSet:
+					f.onWifiSet(conn, r)
+				case CmdWifiGet:
+					f.respond(conn, r, pb.StringField(2, f.storedSSID))
 				}
 			}
 		}
@@ -128,6 +137,22 @@ func (f *fakeCamera) onLanAuth(conn net.Conn, r *pprpc.RPC) bool {
 	f.authedUser <- string(user)
 	f.respond(conn, r, pb.BytesField(1, f.sessionKey))
 	return true
+}
+
+// onWifiSet mimics dev_on_ipc_WifiSet: decode the request, read ssid (field 2)
+// and pwd (field 3), and answer with an empty-body code-0 response.
+func (f *fakeCamera) onWifiSet(conn net.Conn, r *pprpc.RPC) {
+	key, iv := pprpc.RPCKey(pprpc.DefaultPrekey, r.Sequence, r.CommandID, uint64(r.RPCType))
+	plain, err := pprpc.DecryptCBCPadded(r.Payload, key, iv)
+	if err != nil {
+		f.t.Errorf("fake camera could not decrypt WifiSet: %v", err)
+		return
+	}
+	ssid, _ := pb.FirstBytes(plain, 2)
+	pwd, _ := pb.FirstBytes(plain, 3)
+	f.storedSSID = string(ssid)
+	f.wifiSet <- wifiCreds{ssid: string(ssid), pwd: string(pwd)}
+	f.respond(conn, r, nil)
 }
 
 func (f *fakeCamera) sendHeartbeats(conn net.Conn) {
@@ -204,6 +229,77 @@ func TestConnectHandshake(t *testing.T) {
 	case <-f.videoPlay:
 	case <-time.After(2 * time.Second):
 		t.Fatal("VideoPlay never arrived")
+	}
+}
+
+func TestSetWiFi(t *testing.T) {
+	const password = "$L0$deadbeef"
+	f := newFakeCamera(t, password)
+	c := newTestClient(f, password, []string{"admin"})
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// ConnectControl authenticates without starting a video stream.
+	if err := c.ConnectControl(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-f.videoPlay:
+		t.Fatal("ConnectControl must not start a video stream")
+	default:
+	}
+
+	if err := c.SetWiFi(ctx, "home-net", "s3cret-pass"); err != nil {
+		t.Fatalf("SetWiFi: %v", err)
+	}
+	select {
+	case got := <-f.wifiSet:
+		if got.ssid != "home-net" || got.pwd != "s3cret-pass" {
+			t.Fatalf("camera stored ssid=%q pwd=%q", got.ssid, got.pwd)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("camera never received WifiSet")
+	}
+}
+
+func TestGetWiFiReadsBack(t *testing.T) {
+	const password = "$L0$deadbeef"
+	f := newFakeCamera(t, password)
+	f.storedSSID = "office-ap"
+	c := newTestClient(f, password, []string{"admin"})
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.ConnectControl(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.GetWiFi(ctx)
+	if err != nil {
+		t.Fatalf("GetWiFi: %v", err)
+	}
+	if got != "office-ap" {
+		t.Fatalf("GetWiFi = %q, want %q", got, "office-ap")
+	}
+}
+
+func TestSetWiFiRejectsBadInput(t *testing.T) {
+	const password = "$L0$deadbeef"
+	f := newFakeCamera(t, password)
+	c := newTestClient(f, password, []string{"admin"})
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.ConnectControl(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetWiFi(ctx, "", "pw"); err == nil {
+		t.Fatal("empty SSID must be rejected")
+	}
+	if err := c.SetWiFi(ctx, string(make([]byte, MaxWiFiField+1)), "pw"); err == nil {
+		t.Fatal("over-long SSID must be rejected")
 	}
 }
 

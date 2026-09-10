@@ -26,6 +26,7 @@ usage:
   cheap-shot serve       --config config.json      run the bridge
   cheap-shot discover    [--udp] [--net CIDR]      find cameras on the LAN
   cheap-shot derive      --did D --scode S         print the LanAuth password
+  cheap-shot wifi-config --ssid S --password P     make the camera join a WiFi network
   cheap-shot healthcheck [--url URL]               probe a running bridge
 
 Run any subcommand with -h for its flags.
@@ -47,6 +48,8 @@ func main() {
 		err = runDiscover(ctx, os.Args[2:])
 	case "derive":
 		err = runDerive(os.Args[2:])
+	case "wifi-config":
+		err = runWifiConfig(ctx, os.Args[2:])
 	case "healthcheck":
 		err = runHealthcheck(ctx, os.Args[2:])
 	case "-h", "--help", "help":
@@ -91,7 +94,7 @@ func runDerive(args []string) error {
 func runDiscover(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("discover", flag.ExitOnError)
 	useUDP := fs.Bool("udp", false, "also try the experimental UDP broadcast probe")
-	cmdID := fs.Uint64("discovery-cmd", discovery.DefaultDiscoveryCmd, "RPC command id for the UDP probe (unconfirmed)")
+	cmdID := fs.Uint64("discovery-cmd", discovery.DefaultDiscoveryCmd, "RPC command id for the UDP probe")
 	network := fs.String("net", "", "IPv4 network to scan, e.g. 192.168.9.0/24 (default: local interfaces)")
 	timeout := fs.Duration("timeout", 400*time.Millisecond, "per-host TCP connect timeout")
 	if err := fs.Parse(args); err != nil {

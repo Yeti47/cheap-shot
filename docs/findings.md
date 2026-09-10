@@ -267,15 +267,18 @@ mapping and captured evidence in [`protocol.md`](protocol.md) (raw logs in
 not require `is_conn_plat` (cloud); the firmware has an explicit
 `AVSDK_CONN_ONLY_TCP, NO P2P!` mode.
 
-**5a. The RPC command table is a name-only string table.** 122 entries at logical
-`0x5a540`–`0x5a724`. It carries *no* parallel ID array — the id↔name mapping is a
-compiled switch — so command IDs cannot be read straight off it. The live-validated
-ones are `2650 LanAuth`, `106 SyncConn`, `107 ConnHB`, `2610 VideoPlay`,
-`2614 AudioPlay`. `Discovery` sits four slots before `VideoPlay`, which *would*
-make it 2606 if the table were consecutive — but the same reasoning predicts
-`LanAuth 2646` where the truth is 2650, so **2606 is a hypothesis, not a result.**
-Recovering it properly means reading the switch's jump table. Until then the
-bridge discovers cameras with a slow TCP probe of port 20190 instead.
+**5a. Command IDs and field layouts, fully recovered (2026-09-10).** The
+name-only string table (122 entries at `0x5a540`) carries no IDs, but the pprpc
+**command registration table** does: a 126-entry array of 0x20-byte records at
+`0x13bca8`, each `{id, flags, req_fields, sizes, resp_fields, …}` pointing at the
+nanopb descriptors. Reading it off gives every command's id and wire fields.
+Confirmed against the live IDs (`2650 LanAuth`, `2610 VideoPlay`, `2614 AudioPlay`,
+`106 SyncConn`) and it resolves the two open questions: **`Discovery` is 2600**
+(not the guessed 2606 — the id table jumps `2603 → 2610`, so 2604–2609 don't
+exist), and the WiFi commands are **`2601 WifiAPGet`, `2602 WifiSet`, `2603
+WifiGet`**. `DefaultDiscoveryCmd` updated to 2600. Full `WifiSet` spec (join a
+router network as a station) is in [`protocol.md`](protocol.md); implemented as
+`camera.Client.SetWiFi` + the `cheap-shot wifi-config` subcommand.
 
 **5. The stock shell has 69 msh commands.** Full list (from the `__cmd_*` table):
 `HD audio_dump cat cd cp date df dns echo fal free getvalue help ifconfig linkkey

@@ -45,24 +45,31 @@ The firmware carries a **122-entry command-name table** at logical
 `0x5a540`–`0x5a724` (pointers into the name strings at `0x13cd…`): `PPMQPublish`,
 `NatTest1`, …, `SyncConn`, `ConnHB`, …, `Discovery`, `WifiAPGet`, `WifiSet`,
 `WifiGet`, `VideoPlay`, `VideoPause`, `VideoQosSet`, `FlipSet`, `AudioPlay`, …
-It is a **plain string table indexed by an enum**, with *no* parallel ID array —
-the id↔name mapping is a compiled switch (its case constants sit in the literal
-pools at `0x5b464` and `0x5c2b0`), so IDs cannot simply be read off the table.
-Names alone confirm the roles of the live-validated IDs:
+It is a **plain string table indexed by an enum**, with *no* parallel ID array.
+But the id↔name mapping is fully recoverable from a **second** structure: the
+pprpc **command registration table**, a 126-entry array of 0x20-byte records at
+logical `0x13bca8`–`0x13cca8`, each `{id:u32, flags:u32, req_fields:ptr,
+enc_size:u32, wire_size:u32, resp_fields:ptr, …}`. `req_fields`/`resp_fields`
+point at the nanopb field descriptors (25-byte field records: tag@+0, type@+4,
+`char[]` size@+13), so every command's id, wire fields, and field sizes read
+straight off it. Cross-checked against the live-validated ids:
 
-    2650  LanAuth        -> returns a fresh 32-hex session_key
+    2650  LanAuth        -> f2 user, f3 pwd; resp f1 = 32-hex session_key
      106  SyncConn       -> connection sync
      107  ConnHB         -> time-sync / heartbeat, sent BY the camera
+    2600  Discovery      -> resp = name/ip/mac/version/… (the localsrv reply)
+    2601  WifiAPGet      -> resp f2 = repeated AP scan entry
+    2602  WifiSet        -> f2 ssid, f3 pwd (join a router as a station)
+    2603  WifiGet        -> resp f2 = stored station ssid
     2610  VideoPlay      -> starts the MJPEG stream (type-6 frames)
     2614  AudioPlay      -> G.711 A-law, 8 kHz
 
-⚠️ **`Discovery`'s ID is still unknown.** The table's ordering is consecutive in
-places (`VideoPlay 2610`, `VideoPause 2611`, `VideoQosSet 2612`, `FlipSet 2613`,
-`AudioPlay 2614` matches its slot order exactly) which would put `Discovery` at
-**2606**, but the same extrapolation predicts `LanAuth 2646` where the real value
-is 2650 — so the ordering breaks somewhere and 2606 is only a hypothesis. The
-bridge therefore treats UDP discovery as experimental (`--discovery-cmd`
-overrides the constant) and relies on a slow TCP probe of port 20190 instead.
+✅ **`Discovery`'s ID is 2600, confirmed** — its record (`0x13c088`) carries the
+device-info response descriptor. This retires the earlier **2606** guess, which
+assumed the name table was consecutive; the id table actually jumps `2603 →
+2610` (there is no 2604–2609), which is exactly why the consecutive
+extrapolation also mispredicted `LanAuth` as 2646. `DefaultDiscoveryCmd` is now
+2600; `--discovery-cmd` still overrides it.
 
 **The camera's own heartbeat gates the stream.** After `SyncConn` the camera
 sends two unsolicited command-107 *requests*; at least one must be answered
@@ -71,10 +78,42 @@ request's field 1 echoed back, field 2 = `-30` (as a two's complement int64
 varint, not zigzag), field 3 = the client's wall-clock time in milliseconds.
 
 Request payloads: `LanAuth` = field 2 `user` (string), field 3 `pwd` (string);
-`SyncConn` = field 1 `1`; `VideoPlay` = field 2 `QoS`; `AudioPlay` = empty.
+`SyncConn` = field 1 `1`; `VideoPlay` = field 2 `QoS`; `AudioPlay` = empty;
+`WifiSet` = field 2 `ssid` (string), field 3 `passwd` (string). Across the
+message set, **field 1 is always the connection `channel`** (an int the client
+leaves 0) and the real payload starts at field 2 — which is why the working
+`LanAuth`/`VideoPlay`/`WifiSet` requests all begin numbering at 2.
 `LanAuth`'s response carries the session key in field 1.
 
 The camera clamps video to **640×480 MJPEG (format 4) @ ~10 fps**, QoS 5.
+
+## WifiSet (2602) — make the camera join a router network as a station  ✓ recovered
+
+The camera boots into its own AP only because it has no stored station
+credentials (`is_ap_up(1)`, and it keeps failing to reach the cloud). Handing it
+an SSID + passphrase via `WifiSet` makes it join that network and become
+reachable there on the same port 20190 — no custom firmware, no cloud, no app.
+
+- **Command id 2602**, protobuf (type 4), request `{f1 channel:int, f2 ssid:string,
+  f3 passwd:string, f5 string[16] optional}`. Descriptor at logical `0x142624`
+  (`f2`/`f3` are `char[65]` = 64 bytes + NUL, so SSID/passphrase cap at 64).
+- **Handler `dev_on_ipc_WifiSet` @ `0x79770`** (Thumb): decodes the request into a
+  struct (`channel@+0, ssid@+4, pwd@+0x45`), logs `ssid:%s`/`pwd:%s`, persists
+  the creds (the on-SD `/sd/config_json.txt` carries `wifi_ssid`/`wifi_key`), sets
+  `wifi verify set true`, and returns success. **The response body is empty; code
+  0 = accepted.**
+- On success the camera drops AP mode and reconnects as a station, so the
+  AP-side TCP session goes away right after the ack — expected, not an error. It
+  then picks up a DHCP lease on the target LAN; point the bridge at that address.
+  Recovery if the creds are wrong: hold MODE ~15s to force AP mode back.
+- `WifiGet` (2603, empty request) reads the stored SSID back (resp `f2`), and
+  `WifiAPGet` (2601) returns a scan of nearby APs (resp `f2` repeated) — useful
+  for confirming/debugging without UART.
+
+Implemented in the bridge as `camera.Client.SetWiFi` (`src/internal/camera/wifi.go`)
+and the `cheap-shot wifi-config --ssid … --password …` subcommand, which
+authenticates over the AP session (`ConnectControl`, i.e. LanAuth + SyncConn with
+no VideoPlay) and sends the one command.
 
 ## ✅ LanAuth SOLVED (2026-09-10) — the secret is `deckey(lslat)`, not `scode`
 

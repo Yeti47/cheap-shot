@@ -21,10 +21,13 @@ import (
 // APGateway is the address the camera serves in its own factory AP mode.
 const APGateway = "192.168.9.252"
 
-// DefaultDiscoveryCmd is a working hypothesis, not a confirmed value: the
-// firmware's command-name table is ordered and places Discovery four slots
-// before VideoPlay (2610). Override it if the probe stays silent.
-const DefaultDiscoveryCmd = 2606
+// DefaultDiscoveryCmd is the Discovery command id, recovered from the firmware's
+// command registration table (record at logical 0x13c088, id 2600, whose
+// response descriptor carries the device name/ip/mac/version fields). This
+// supersedes the earlier 2606 hypothesis, which came from assuming the
+// command-name table was consecutive; the id table jumps 2603 -> 2610. Override
+// it only if a future firmware revision moves it.
+const DefaultDiscoveryCmd = 2600
 
 // ClassCode is what the firmware requires in a discovery request; it logs
 // "Discovery input class_code:%s, != IPAV" for anything else.
