@@ -24,6 +24,10 @@ import (
 const (
 	CmdSyncConn  = 106
 	CmdConnHB    = 107 // time sync / heartbeat, sent BY the camera
+	CmdDiscovery = 2600
+	CmdWifiAPGet = 2601 // camera returns a scan of nearby APs
+	CmdWifiSet   = 2602 // set the router SSID+password the camera joins as a station
+	CmdWifiGet   = 2603 // camera returns the stored station SSID
 	CmdVideoPlay = 2610
 	CmdAudioPlay = 2614
 	CmdLanAuth   = 2650
@@ -83,6 +87,7 @@ type Client struct {
 
 	sessionKey []byte
 	user       string
+	seq        uint64 // last RPC sequence number used; allocSeq hands out the next
 	dump       *os.File
 }
 
@@ -100,7 +105,16 @@ func (c *Client) User() string { return c.user }
 
 // Connect dials the camera and performs the full handshake: LanAuth, the
 // connection sync, the camera's initial heartbeat, and VideoPlay.
-func (c *Client) Connect(ctx context.Context) error {
+func (c *Client) Connect(ctx context.Context) error { return c.connect(ctx, true) }
+
+// ConnectControl performs the handshake up to and including the connection
+// sync, but does not start a video stream. It is the entry point for control
+// commands such as SetWiFi that only need an authenticated session.
+func (c *Client) ConnectControl(ctx context.Context) error { return c.connect(ctx, false) }
+
+// connect runs the username-candidate loop, delegating each attempt to
+// connectAs. When video is false it stops after the session is established.
+func (c *Client) connect(ctx context.Context, video bool) error {
 	users := c.cfg.UserCandidates
 	if c.cfg.Credentials.User != "" {
 		users = []string{c.cfg.Credentials.User}
@@ -110,7 +124,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 	var lastErr error
 	for _, user := range users {
-		err := c.connectAs(ctx, user)
+		err := c.connectAs(ctx, user, video)
 		if err == nil {
 			c.user = user
 			return nil
@@ -125,14 +139,25 @@ func (c *Client) Connect(ctx context.Context) error {
 	return lastErr
 }
 
-func (c *Client) connectAs(ctx context.Context, user string) error {
+// allocSeq returns the next RPC sequence number. LanAuth and SyncConn take the
+// fixed sequences 1 and 2 during the handshake; everything sent afterwards
+// (VideoPlay, SetWiFi, ...) draws from here so the numbers never collide.
+func (c *Client) allocSeq() uint64 {
+	if c.seq < 2 {
+		c.seq = 2
+	}
+	c.seq++
+	return c.seq
+}
+
+func (c *Client) connectAs(ctx context.Context, user string, video bool) error {
 	addr := net.JoinHostPort(c.cfg.Host, strconv.Itoa(c.cfg.Port))
 	d := net.Dialer{Timeout: c.cfg.ConnectTimeout}
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("camera: dial %s: %w", addr, err)
 	}
-	c.conn, c.buf, c.pend, c.sessionKey = conn, nil, nil, nil
+	c.conn, c.buf, c.pend, c.sessionKey, c.seq = conn, nil, nil, nil, 0
 	if err := c.openDump(); err != nil {
 		return err
 	}
@@ -179,11 +204,16 @@ func (c *Client) connectAs(ctx context.Context, user string) error {
 		return err
 	}
 
-	// 4. Start the stream. The camera clamps QoS to its own maximum.
-	if err := c.sendRequest(3, CmdVideoPlay, pb.VarintField(2, MaxQoS)); err != nil {
+	// 4. Start the stream. The camera clamps QoS to its own maximum. Control
+	// sessions (SetWiFi and the like) stop here with an authenticated socket.
+	if !video {
+		return nil
+	}
+	seq := c.allocSeq()
+	if err := c.sendRequest(seq, CmdVideoPlay, pb.VarintField(2, MaxQoS)); err != nil {
 		return err
 	}
-	if _, err := c.waitResponse(ctx, 3, CmdVideoPlay, time.Now().Add(c.cfg.ConnectTimeout)); err != nil {
+	if _, err := c.waitResponse(ctx, seq, CmdVideoPlay, time.Now().Add(c.cfg.ConnectTimeout)); err != nil {
 		return err
 	}
 	return nil

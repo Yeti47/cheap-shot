@@ -83,6 +83,13 @@ Other subcommands:
 - `cheap-shot discover` — slow, deliberate probe of port 20190 across the LAN
   (a *fast* sweep wedges this device's TCP stack).
 - `cheap-shot derive --did … --scode …` — print the LanAuth password offline.
+- `cheap-shot wifi-config --ssid … --password …` — tell the camera to **join a
+  router network as a station** instead of hosting its own AP, so it's reachable
+  from your LAN (`WifiSet` RPC, [`docs/protocol.md`](docs/protocol.md)). Run it
+  while joined to the camera's setup AP; it authenticates and sends the one
+  command. The camera then leaves AP mode and gets a new DHCP address on the
+  target network (set a reservation and point the config's `host` at it). To
+  undo, hold the camera's MODE button ~15s to force AP mode back.
 - `cheap-shot healthcheck` — used by the container's `HEALTHCHECK`.
 
 Device secrets never belong in the image: `did`/`lslat` come from `.env`, the
