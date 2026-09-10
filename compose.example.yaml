@@ -1,29 +1,32 @@
-# Copy to compose.yaml (gitignored) and adjust.
+# cheap-shot — local Docker Compose (environment-based).
 #
-# Prerequisite on the HOST -- a container cannot load a kernel module:
-#   sudo modprobe v4l2loopback exclusive_caps=1 card_label=cheap-shot
+#   1. cp .env.example .env   and fill in your camera's did + lslat
+#      (from firmware/logical/factory_config.json — both stay local/gitignored).
+#   2. docker compose up --build
+#   3. open http://127.0.0.1:8080/  for the live dashboard.
+#
+# The camera credentials are read from .env at runtime and are never baked into
+# the image (.env is excluded from the build context by .dockerignore).
 services:
   cheap-shot:
     build: .
     image: cheap-shot
-    # Host networking is required for `discover`: UDP broadcast does not cross
-    # Docker's bridge NAT, and the camera sits on the host's own AP-side
-    # subnet (192.168.9.0/24). For a fixed-IP camera you may instead use
-    # bridge networking with `ports: ["8080:8080"]` and
-    # CHEAPSHOT_LISTEN=0.0.0.0:8080.
+    # Host networking: `discover` needs UDP broadcast (which cannot cross
+    # Docker's bridge NAT), and the camera lives on the host's own AP-side
+    # subnet (192.168.9.0/24). CHEAPSHOT_LISTEN in .env sets the dashboard bind
+    # address; 127.0.0.1:8080 keeps it host-only.
     network_mode: host
-    devices:
-      - "/dev/video10:/dev/video10"
-    group_add:
-      - video
-    volumes:
-      # Device secrets stay on the host, read-only, never in the image.
-      - ./config.json:/config.json:ro
-    environment:
-      CHEAPSHOT_LISTEN: "127.0.0.1:8080"
-      # Alternatively, drop the volume above entirely and pass everything here:
-      # CHEAPSHOT_CAM1_HOST: "192.168.9.252"
-      # CHEAPSHOT_CAM1_DID: "<PRODUCT_KEY>"
-      # CHEAPSHOT_CAM1_SCODE: "<PRODUCT_SECRET>"
-      # CHEAPSHOT_CAM1_V4L2_DEVICE: "/dev/video10"
+    env_file:
+      - .env
     restart: unless-stopped
+    # The default command (serve --config /config.json) finds no file and falls
+    # back to the environment automatically, so no config volume is needed.
+    #
+    # --- Optional: also expose the stream as a /dev/video* webcam ------------
+    # A container cannot load kernel modules, so load it on the HOST first:
+    #   sudo modprobe v4l2loopback exclusive_caps=1 card_label=cheap-shot
+    # then set CHEAPSHOT_CAM1_V4L2_DEVICE=/dev/video10 in .env and uncomment:
+    # devices:
+    #   - "/dev/video10:/dev/video10"
+    # group_add:
+    #   - video

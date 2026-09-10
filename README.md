@@ -37,20 +37,34 @@ module, so this is a host step either way):
 sudo modprobe v4l2loopback exclusive_caps=1 card_label=cheap-shot
 ```
 
-Then configure and run:
+Then configure and run. The camera needs two device-local values — `did`
+(factory `PRODUCT_KEY`) and `lslat` (factory `DEVICE_SECRET`, a base64 string) —
+both in `firmware/logical/factory_config.json` (gitignored). Supply them either
+via environment variables or a JSON file.
+
+**Docker (env-based, recommended):**
+
+```sh
+cp .env.example .env       # .env is gitignored; fill in did + lslat
+cp compose.example.yaml compose.yaml
+docker compose up --build
+```
+
+**Host binary with env vars (no config file):**
+
+```sh
+go build -o cheap-shot ./src/cmd/cheap-shot
+CHEAPSHOT_CAM1_HOST=192.168.9.252 \
+CHEAPSHOT_CAM1_DID=<PRODUCT_KEY> CHEAPSHOT_CAM1_LSLAT=<DEVICE_SECRET> \
+./cheap-shot serve            # falls back to env when config.json is absent
+```
+
+**Or a JSON config file:**
 
 ```sh
 cp config.example.json config.json     # config.json is gitignored
-# fill in did/scode from firmware/logical/factory_config.json
-go build -o cheap-shot ./src/cmd/cheap-shot
+# fill in did + lslat, then:
 ./cheap-shot serve --config config.json
-```
-
-or with Docker:
-
-```sh
-cp compose.example.yaml compose.yaml
-docker compose up --build
 ```
 
 Then open `http://127.0.0.1:8080/` for the **live dashboard** — a tile per camera
@@ -67,16 +81,16 @@ Other subcommands:
 - `cheap-shot derive --did … --scode …` — print the LanAuth password offline.
 - `cheap-shot healthcheck` — used by the container's `HEALTHCHECK`.
 
-Device secrets never belong in the image: `did`/`scode` come from the mounted
-config or from `CHEAPSHOT_<CAM>_DID` / `CHEAPSHOT_<CAM>_SCODE` environment
-variables.
+Device secrets never belong in the image: `did`/`lslat` come from `.env`, the
+`CHEAPSHOT_<CAM>_DID` / `CHEAPSHOT_<CAM>_LSLAT` environment variables, or a
+mounted config file — all of which stay local (gitignored).
 
 ## Repo layout
 
 - `src/` — **the bridge** (Go, zero external dependencies). `src/cmd/cheap-shot`
   is the binary; `src/internal/pprpc` the wire format, `src/internal/camera` the
   LAN client, `src/internal/v4l2` the `/dev/video*` sink.
-- `Dockerfile`, `compose.example.yaml`, `config.example.json` — containerized
+- `Dockerfile`, `compose.example.yaml`, `.env.example`, `config.example.json` — containerized
   deployment; the image is the static binary and nothing else.
 - `docs/findings.md` — the detailed technical writeup: device identification,
   dead ends (don't repeat these), the physical access procedure that worked,

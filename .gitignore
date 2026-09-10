@@ -15,7 +15,7 @@ venv/
 Thumbs.db
 
 # Local secrets, if any ever show up
-.env
+/.env
 
 # Device-unique factory credentials extracted from the dump - never commit
 firmware/logical/factory_config.json

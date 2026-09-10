@@ -109,3 +109,16 @@ func TestUserCandidates(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestLoadMissingFileFallsBackToEnv(t *testing.T) {
+	t.Setenv("CHEAPSHOT_CAM1_HOST", "192.168.9.252")
+	t.Setenv("CHEAPSHOT_CAM1_DID", "D")
+	t.Setenv("CHEAPSHOT_CAM1_LSLAT", "AAAAAAAAAAAAAAAAAAAAAA==")
+	cfg, err := Load(filepath.Join(t.TempDir(), "no-such-config.json"), nil)
+	if err != nil {
+		t.Fatalf("missing config file should fall back to env: %v", err)
+	}
+	if len(cfg.Cameras) != 1 || cfg.Cameras[0].Host != "192.168.9.252" || cfg.Cameras[0].DID != "D" {
+		t.Fatalf("env-only camera not built: %+v", cfg.Cameras)
+	}
+}

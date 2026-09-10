@@ -4,6 +4,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -86,22 +87,34 @@ func (c Camera) UserCandidates() []string {
 // validates the result.
 func Load(path string, log *slog.Logger) (*Config, error) {
 	cfg := &Config{Listen: "127.0.0.1:8080"}
+	fileLoaded := false
 	if path != "" {
 		raw, err := os.ReadFile(path)
-		if err != nil {
+		switch {
+		case err == nil:
+			dec := json.NewDecoder(strings.NewReader(string(raw)))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(cfg); err != nil {
+				return nil, fmt.Errorf("config: %s: %w", path, err)
+			}
+			fileLoaded = true
+		case errors.Is(err, os.ErrNotExist):
+			// No file at the (possibly default) path: fall back to a purely
+			// environment-driven config, which is the intended Docker/.env
+			// path. validate() still errors if the environment supplies no
+			// camera either.
+			if log != nil {
+				log.Info("config file not found; using environment only", "path", path)
+			}
+		default:
 			return nil, fmt.Errorf("config: %w", err)
-		}
-		dec := json.NewDecoder(strings.NewReader(string(raw)))
-		dec.DisallowUnknownFields()
-		if err := dec.Decode(cfg); err != nil {
-			return nil, fmt.Errorf("config: %s: %w", path, err)
 		}
 	}
 	applyEnv(cfg)
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	if path != "" {
+	if fileLoaded {
 		warnIfInGitTree(path, cfg, log)
 	}
 	return cfg, nil
