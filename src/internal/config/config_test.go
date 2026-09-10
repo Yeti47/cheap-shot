@@ -19,13 +19,13 @@ func write(t *testing.T, body string) string {
 }
 
 func TestLoadAppliesDefaults(t *testing.T) {
-	path := write(t, `{"cameras":[{"name":"cam1","host":"192.168.9.252","did":"D","scode":"S"}]}`)
+	path := write(t, `{"cameras":[{"name":"cam1","host":"192.168.9.252","did":"D","scode":"S","rotation":90}]}`)
 	cfg, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := cfg.Cameras[0]
-	if c.Port != pprpc.Port || c.Prekey != pprpc.DefaultPrekey {
+	if c.Port != pprpc.Port || c.Prekey != pprpc.DefaultPrekey || c.Rotation != 90 {
 		t.Fatalf("defaults not applied: %+v", c)
 	}
 	if cfg.Listen != "127.0.0.1:8080" {
@@ -46,13 +46,14 @@ func TestEnvOverridesFile(t *testing.T) {
 	t.Setenv("CHEAPSHOT_CAM_1_DID", "envdid")
 	t.Setenv("CHEAPSHOT_CAM_1_SCODE", "envscode")
 	t.Setenv("CHEAPSHOT_CAM_1_HOST", "192.168.9.252")
+	t.Setenv("CHEAPSHOT_CAM_1_ROTATION", "180")
 
 	cfg, err := Load(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := cfg.Cameras[0]
-	if cfg.Listen != "0.0.0.0:9000" || c.DID != "envdid" || c.SCode != "envscode" || c.Host != "192.168.9.252" {
+	if cfg.Listen != "0.0.0.0:9000" || c.DID != "envdid" || c.SCode != "envscode" || c.Host != "192.168.9.252" || c.Rotation != 180 {
 		t.Fatalf("env overrides not applied: %+v %s", c, cfg.Listen)
 	}
 }
@@ -77,6 +78,7 @@ func TestValidationErrors(t *testing.T) {
 		"missing did":    `{"cameras":[{"name":"cam1","host":"h"}]}`,
 		"missing secret": `{"cameras":[{"name":"cam1","host":"h","did":"D"}]}`,
 		"bad name":       `{"cameras":[{"name":"cam 1","host":"h","did":"D","scode":"S"}]}`,
+		"bad rotation":   `{"cameras":[{"name":"cam1","host":"h","did":"D","scode":"S","rotation":45}]}`,
 		"duplicate":      `{"cameras":[{"name":"c","host":"h","did":"D","scode":"S"},{"name":"c","host":"h","did":"D","scode":"S"}]}`,
 		"unknown field":  `{"camera":[]}`,
 	}

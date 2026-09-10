@@ -7,6 +7,7 @@
       "port": 20190,
       "did": "<PRODUCT_KEY, e.g. PP00A9XXXXXXXXXX; also visible in the setup-AP SSID>",
       "lslat": "<DEVICE_SECRET as a base64 string, e.g. AAAA...==>",
+      "rotation": 0,
       "v4l2_device": "/dev/video10"
     }
   ]

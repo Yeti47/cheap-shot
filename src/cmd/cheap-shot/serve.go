@@ -118,7 +118,7 @@ func runCamera(ctx context.Context, cam config.Camera, hub *frames.Hub, sink *v4
 			DumpDir:        dumpDir,
 			Logger:         camLog,
 		})
-		err := connectAndStream(ctx, client, hub, sink, camLog)
+		err := connectAndStream(ctx, client, hub, sink, cam.Rotation, camLog)
 		client.Close()
 		if ctx.Err() != nil {
 			return
@@ -137,7 +137,7 @@ func runCamera(ctx context.Context, cam config.Camera, hub *frames.Hub, sink *v4
 }
 
 func connectAndStream(ctx context.Context, client *camera.Client, hub *frames.Hub,
-	sink *v4l2.Sink, log *slog.Logger) error {
+	sink *v4l2.Sink, rotation int, log *slog.Logger) error {
 
 	if err := client.Connect(ctx); err != nil {
 		return err
@@ -147,6 +147,11 @@ func connectAndStream(ctx context.Context, client *camera.Client, hub *frames.Hu
 
 	var sinkFailed bool
 	return client.Stream(ctx, func(frame []byte) {
+		frame, err := frames.RotateJPEG(frame, rotation)
+		if err != nil {
+			log.Error("cannot rotate JPEG frame", "rotation", rotation, "err", err)
+			return
+		}
 		hub.Publish(frame)
 		if sink == nil || sinkFailed {
 			return

@@ -42,6 +42,8 @@ type Camera struct {
 	// candidates (empty, the did, "admin").
 	User      string `json:"user,omitempty"`
 	AuthIndex int    `json:"auth_index,omitempty"`
+	// Rotation is clockwise and must be a quarter-turn amount.
+	Rotation int `json:"rotation,omitempty"`
 
 	// Prekey overrides the control-plane key material recovered from the
 	// stock firmware; LanPassword overrides the derivation entirely.
@@ -120,7 +122,7 @@ func Load(path string, log *slog.Logger) (*Config, error) {
 	return cfg, nil
 }
 
-// applyEnv lets CHEAPSHOT_LISTEN and CHEAPSHOT_<CAM>_{HOST,DID,LSLAT,SCODE,USER,V4L2_DEVICE}
+// applyEnv lets CHEAPSHOT_LISTEN and CHEAPSHOT_<CAM>_{HOST,DID,LSLAT,SCODE,USER,ROTATION,V4L2_DEVICE}
 // override the file, so secrets need never be written to disk.
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("CHEAPSHOT_LISTEN"); v != "" {
@@ -143,6 +145,11 @@ func applyEnv(cfg *Config) {
 		setEnv(&c.Prekey, prefix+"PREKEY")
 		setEnv(&c.LanPassword, prefix+"LAN_PASSWORD")
 		setEnv(&c.V4L2Device, prefix+"V4L2_DEVICE")
+		if v := os.Getenv(prefix + "ROTATION"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				c.Rotation = n
+			}
+		}
 		if v := os.Getenv(prefix + "PORT"); v != "" {
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Port = n
@@ -191,6 +198,9 @@ func (cfg *Config) validate() error {
 		}
 		if c.Port == 0 {
 			c.Port = pprpc.Port
+		}
+		if c.Rotation != 0 && c.Rotation != 90 && c.Rotation != 180 && c.Rotation != 270 {
+			return fmt.Errorf("config: camera %q rotation must be 0, 90, 180, or 270 degrees", c.Name)
 		}
 		if c.Prekey == "" {
 			c.Prekey = pprpc.DefaultPrekey

@@ -73,6 +73,11 @@ you can see at a glance whether the cameras are running. The raw stream is at
 JSON status, and the camera also appears as an ordinary webcam on the configured
 `/dev/video*` node.
 
+Set a camera's optional `rotation` to clockwise `0`, `90`, `180`, or `270`
+degrees in the JSON config, or use `CHEAPSHOT_CAM1_ROTATION` with environment
+configuration. Rotation is applied before all outputs, including the dashboard,
+snapshot, MJPEG stream, and `/dev/video*` device.
+
 Other subcommands:
 
 - `cheap-shot discover` — slow, deliberate probe of port 20190 across the LAN
