@@ -152,3 +152,26 @@ func TestUnknownCameraIs404(t *testing.T) {
 		t.Fatalf("status %s", resp.Status)
 	}
 }
+
+func TestDashboard(t *testing.T) {
+	srv, _ := newServer(t)
+	resp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %s", resp.Status)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("content type %q", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	s := string(body)
+	// the configured camera tile and the live-status script must be present
+	for _, want := range []string{`id="tile-cam1"`, `/cam1/stream.mjpeg`, `fetch("/healthz"`, `const CAMS = ["cam1"]`} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("dashboard missing %q", want)
+		}
+	}
+}

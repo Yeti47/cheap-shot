@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/Yeti47/cheap-shot/src/internal/frames"
@@ -38,19 +37,7 @@ func Handler(hubs map[string]*frames.Hub) http.Handler {
 		}
 		json.NewEncoder(w).Encode(out)
 	})
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		names := make([]string, 0, len(hubs))
-		for name := range hubs {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, "<!doctype html><meta charset=utf-8><title>cheap-shot</title><h1>cheap-shot</h1>")
-		for _, name := range names {
-			fmt.Fprintf(w, `<h2>%s</h2><img src="/%s/stream.mjpeg" alt="%s">`+
-				`<p><a href="/%s/snapshot.jpg">snapshot</a></p>`, name, name, name, name)
-		}
-	})
+	mux.HandleFunc("GET /{$}", dashboardHandler(hubs))
 	mux.HandleFunc("GET /{cam}/snapshot.jpg", withHub(hubs, snapshot))
 	mux.HandleFunc("GET /{cam}/stream.mjpeg", withHub(hubs, stream))
 	return mux

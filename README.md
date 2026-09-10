@@ -53,9 +53,12 @@ cp compose.example.yaml compose.yaml
 docker compose up --build
 ```
 
-Either way the stream is at `http://127.0.0.1:8080/cam1/stream.mjpeg`, a still
-frame at `/cam1/snapshot.jpg`, and the camera appears as an ordinary webcam on
-the configured `/dev/video*` node.
+Then open `http://127.0.0.1:8080/` for the **live dashboard** — a tile per camera
+with its feed, a connected/fps/last-frame-age badge, and MJPEG auto-reconnect, so
+you can see at a glance whether the cameras are running. The raw stream is at
+`/cam1/stream.mjpeg`, a still frame at `/cam1/snapshot.jpg`, `/healthz` returns
+JSON status, and the camera also appears as an ordinary webcam on the configured
+`/dev/video*` node.
 
 Other subcommands:
 
