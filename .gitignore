@@ -35,4 +35,4 @@ docs/logs/
 /compose.yaml
 
 # Unredacted firmware originals (device secrets) - kept local, never committed
-/firmware-unredacted/
+/firmware/unredacted/
