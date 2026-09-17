@@ -26,6 +26,9 @@ type fakeCamera struct {
 	wifiSet    chan wifiCreds
 	storedSSID string // last SSID set via WifiSet; returned by WifiGet
 
+	ircutSet  chan int64
+	storedIRC int64 // day/night mode; the firmware boots at 2 (day)
+
 	framesToSend int
 	expected     chan []byte
 }
@@ -46,6 +49,8 @@ func newFakeCamera(t *testing.T, password string) *fakeCamera {
 		authedUser: make(chan string, 4),
 		videoPlay:  make(chan struct{}, 1),
 		wifiSet:    make(chan wifiCreds, 1),
+		ircutSet:   make(chan int64, 1),
+		storedIRC:  2, // dev_on_ipc_* init sets the day/night global to 2 at boot
 		expected:   make(chan []byte, 8),
 	}
 	t.Cleanup(func() { ln.Close() })
@@ -112,6 +117,10 @@ func (f *fakeCamera) handle(conn net.Conn) {
 					f.onWifiSet(conn, r)
 				case CmdWifiGet:
 					f.respond(conn, r, pb.StringField(2, f.storedSSID))
+				case CmdIRCutSet:
+					f.onIRCutSet(conn, r)
+				case CmdIRCutGet:
+					f.respond(conn, r, pb.VarintField(1, f.storedIRC))
 				}
 			}
 		}
@@ -152,6 +161,26 @@ func (f *fakeCamera) onWifiSet(conn net.Conn, r *pprpc.RPC) {
 	pwd, _ := pb.FirstBytes(plain, 3)
 	f.storedSSID = string(ssid)
 	f.wifiSet <- wifiCreds{ssid: string(ssid), pwd: string(pwd)}
+	f.respond(conn, r, nil)
+}
+
+// onIRCutSet mimics dev_on_ipc_IRCutSet (0x7a640): take the mode from field 2,
+// store it in a global without validating it, and answer with an empty-body
+// code-0 response.
+func (f *fakeCamera) onIRCutSet(conn net.Conn, r *pprpc.RPC) {
+	key, iv := pprpc.RPCKey(pprpc.DefaultPrekey, r.Sequence, r.CommandID, uint64(r.RPCType))
+	plain, err := pprpc.DecryptCBCPadded(r.Payload, key, iv)
+	if err != nil {
+		f.t.Errorf("fake camera could not decrypt IRCutSet: %v", err)
+		return
+	}
+	mode, err := pb.FirstVarint(plain, 2)
+	if err != nil {
+		f.t.Errorf("IRCutSet carried no mode in field 2: %v", err)
+		return
+	}
+	f.storedIRC = int64(mode)
+	f.ircutSet <- int64(mode)
 	f.respond(conn, r, nil)
 }
 
@@ -386,5 +415,95 @@ func TestStreamTimesOutWithoutFrames(t *testing.T) {
 	err := c.Stream(ctx, func([]byte) { t.Error("unexpected frame") })
 	if err == nil {
 		t.Fatal("want a frame-timeout error")
+	}
+}
+
+func TestSetIRCutRoundTrips(t *testing.T) {
+	const password = "$L0$deadbeef"
+	f := newFakeCamera(t, password)
+	c := newTestClient(f, password, []string{"admin"})
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.ConnectControl(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// A camera that has not been told otherwise answers "day" -- the value its
+	// boot-time init writes to the global IRCutGet reads.
+	got, err := c.GetIRCut(ctx)
+	if err != nil {
+		t.Fatalf("GetIRCut: %v", err)
+	}
+	if got != DayNightDay {
+		t.Fatalf("GetIRCut = %v, want %v", got, DayNightDay)
+	}
+
+	if err := c.SetIRCut(ctx, DayNightNight); err != nil {
+		t.Fatalf("SetIRCut: %v", err)
+	}
+	select {
+	case mode := <-f.ircutSet:
+		if mode != int64(DayNightNight) {
+			t.Fatalf("camera received mode %d, want %d", mode, DayNightNight)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("camera never received IRCutSet")
+	}
+
+	if got, err = c.GetIRCut(ctx); err != nil {
+		t.Fatalf("GetIRCut after set: %v", err)
+	}
+	if got != DayNightNight {
+		t.Fatalf("GetIRCut = %v after setting night, want %v", got, DayNightNight)
+	}
+}
+
+func TestSetIRCutRejectsUnknownMode(t *testing.T) {
+	const password = "$L0$deadbeef"
+	f := newFakeCamera(t, password)
+	c := newTestClient(f, password, []string{"admin"})
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.ConnectControl(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// The firmware stores any value and acts on none but 1/2/3, so a typo
+	// would silently do nothing. Catch it here instead.
+	if err := c.SetIRCut(ctx, DayNightMode(0)); err == nil {
+		t.Fatal("mode 0 must be rejected")
+	}
+	if err := c.SetIRCut(ctx, DayNightMode(4)); err == nil {
+		t.Fatal("mode 4 must be rejected")
+	}
+	select {
+	case mode := <-f.ircutSet:
+		t.Fatalf("an invalid mode (%d) reached the camera", mode)
+	default:
+	}
+}
+
+func TestParseDayNightMode(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want DayNightMode
+	}{
+		{"day", DayNightDay}, {"2", DayNightDay},
+		{"night", DayNightNight}, {"1", DayNightNight},
+		{"auto", DayNightAuto}, {"3", DayNightAuto},
+	} {
+		got, err := ParseDayNightMode(tc.in)
+		if err != nil || got != tc.want {
+			t.Errorf("ParseDayNightMode(%q) = %v, %v; want %v", tc.in, got, err, tc.want)
+		}
+	}
+	for _, bad := range []string{"", "0", "4", "Day", "dusk"} {
+		if _, err := ParseDayNightMode(bad); err == nil {
+			t.Errorf("ParseDayNightMode(%q) must fail", bad)
+		}
 	}
 }
