@@ -385,3 +385,74 @@ Chosen direction and remaining work, in order:
    under any route.
 6. The SD card remains the zero-effort footage fallback, independent of all the
    above.
+
+## ❌ Night mode: it exists, and it is not what you want (2026-09-17)
+
+**The question.** The camera is fine by day and effectively blind at night — a
+snapshot at 22:30 with room lights on is very nearly pure black (mean luma
+~10/255, max 22). The obvious suspicion was that the stock firmware has a night
+mode that raises exposure and/or gain, and that we simply weren't invoking it.
+
+**The answer: there is a night mode, it is reachable over pure LAN, and it
+changes neither exposure nor gain.** `IRCutSet` (2635) / `IRCutGet` (2636) do
+exactly two things — desaturate the sensor to grayscale, and drive GPIO 7. Full
+mechanism, addresses and the live confirmation are in
+[`protocol.md`](protocol.md#ircutset-2635--ircutget-2636--the-daynight-mode---recovered-and-live-confirmed).
+Confirmed on hardware: chroma goes to 0.00 and back, mean luma does not move
+(10.35 → 10.30 → 10.31 across day → night → day). **Nothing illuminates on this
+unit**, so GPIO 7 has no populated IR/white LED behind it here.
+
+**Why no exposure path exists at all.** Every one of the **191** call sites of
+the sensor I²C register write (`0xc3b6c`) lies inside `0xc3bbe`–`0xc53c8`, i.e.
+the sensor driver, and they group into exactly five functions: flip
+(`camera_flip_data`), PPI/resolution, FPS, the per-sensor init tables, and
+day/night. There is **no runtime AEC/exposure/gain API** anywhere in the image.
+Two further dead ends found while looking:
+
+- **Frame rate can't be traded for exposure either.** The FPS setter writes a
+  small per-sensor register table, but it has **no branch for sensor code
+  `0x64`** (our GC0310/GC0312) — it falls through to `"set FPS unknown"`
+  (`0x1658c2`). The sensor runs at whatever its init table set.
+- **`LedSet` (2633) / `LedGet` (2634)** are the same kind of stub as `IRCutSet`,
+  writing the adjacent global (`+0x368`); they are not an illuminator control.
+  `PowerFreqSet` (2658) is 50/60 Hz anti-banding, not a brightness knob.
+
+**Where the AEC actually is, if anyone wants to patch it.** Written once at boot
+from the GC0310/GC0312 init table at logical **`0x164732`** (314 reg/val pairs,
+size `0x275`, selected at `0xc4d02`), never touched again. The interesting
+bytes, as file offsets into `firmware/logical/flash_logical.bin`:
+
+| offset | page | reg | value | meaning |
+|---|---|---|---|---|
+| `0x164834` | 1 | `0x13` | `0x40` | AEC target luma |
+| `0x16483c` | 1 | `0x20` | `0xc0` | max post-gain |
+| `0x16483a` | 1 | `0x1f` | `0x20` | min post-gain |
+| `0x164982`–`0x16498a` | 1 | `0x2b`–`0x2f` | | tail of the max-exposure ladder |
+| `0x164814`/`0x164816` | 0 | `0xd1`/`0xd2` | `0x34` | Cb/Cr saturation (what day/night toggles) |
+
+`tools/decrc.py --re-crc` round-trips byte-exactly, so a patch-and-reflash is
+mechanically available — but it is a reflash of a device whose only recovery
+path is the MODE button, and the register semantics above are inferred from
+public GC0310 drivers rather than a datasheet. **Not attempted.**
+
+**Practical conclusion.** The stock firmware has no lever that will make this
+camera usable at night. The cheap fix is an **external IR illuminator**: the
+GC0310 has no IR-cut filter to remove (which is precisely why `IRCutSet` only
+touches saturation), so it is already IR-sensitive, and `night-mode --mode
+night` then gives the correct grayscale rendering for an IR-lit scene.
+
+**Two side findings from this dig, both now in [`protocol.md`](protocol.md):**
+
+1. **The command-name table starts at `0x5a524`, not `0x5a540`.** Seven names
+   (`GetServers` … `PPMQConnect`) sit below the address this repo had recorded,
+   which shifted every name seven slots against its registration record. With
+   the right base the tables align 1:1 and **all 128 command ids** fall out at
+   once — previously only 9 were known. The alignment reproduces every
+   live-validated id, which is what makes it trustworthy.
+2. **The camera accepts only ONE authenticated LAN session, and releases it
+   lazily.** A second `LanAuth` while `serve` is connected is refused by closing
+   the socket, which surfaces as a bare `read: EOF` (not `ErrAuth`, so the
+   client does not fall through to its other username candidates). The slot also
+   is not free the instant a session ends: two back-to-back one-shot commands
+   failed identically, and both succeeded with a ~8 s gap. Stop the bridge, wait
+   a few seconds, and run one client at a time.

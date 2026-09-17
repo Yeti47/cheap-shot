@@ -39,20 +39,68 @@ reads locally. Nothing is issued by the Tuya/XC cloud at connection time.
 `pprpc_dump_packet` (`0x4d450`) logs each header as `%s,ID:%d-SEQ:%d-RPC:%d` (`0x13a264`)
 — the `<cmd id>`, `<sequence>`, `<rpc type>` triple that also feeds the AES key below.
 
-## RPC command IDs (control sequence to start a stream)
+## RPC command IDs — all 128, fully recovered  ✓
 
-The firmware carries a **122-entry command-name table** at logical
-`0x5a540`–`0x5a724` (pointers into the name strings at `0x13cd…`): `PPMQPublish`,
-`NatTest1`, …, `SyncConn`, `ConnHB`, …, `Discovery`, `WifiAPGet`, `WifiSet`,
-`WifiGet`, `VideoPlay`, `VideoPause`, `VideoQosSet`, `FlipSet`, `AudioPlay`, …
-It is a **plain string table indexed by an enum**, with *no* parallel ID array.
-But the id↔name mapping is fully recoverable from a **second** structure: the
-pprpc **command registration table**, a 126-entry array of 0x20-byte records at
-logical `0x13bca8`–`0x13cca8`, each `{id:u32, flags:u32, req_fields:ptr,
+The firmware carries a command-name table: a plain array of string pointers
+indexed by an enum, with *no* parallel ID array. The ids come from a **second**
+structure, the pprpc **command registration table** — 128 records of 0x20 bytes
+at logical `0x13bca8`–`0x13cca8`, each `{id:u32, flags:u32, req_fields:ptr,
 enc_size:u32, wire_size:u32, resp_fields:ptr, …}`. `req_fields`/`resp_fields`
 point at the nanopb field descriptors (25-byte field records: tag@+0, type@+4,
-`char[]` size@+13), so every command's id, wire fields, and field sizes read
-straight off it. Cross-checked against the live-validated ids:
+`char[]` size@+13), so every command's id, wire fields and field sizes read
+straight off it.
+
+⚠️ **The name table starts at `0x5a524`, not `0x5a540`** (an earlier revision of
+this document said `0x5a540`–`0x5a724`, 122 entries). The first **seven** names
+— `GetServers`, `GetConnServers`, `TimetaskCmd`, `PpiotCmd`, `BigPpiotCmd`,
+`PPMQGetClientID`, `PPMQConnect` — sit *below* that address, so counting from
+`0x5a540` shifts every name seven slots against its record. With the correct
+base the two tables line up **1:1, record `i` ↔ name `i`**, and the whole
+mapping falls out at once. It reproduces every id we had already confirmed live
+(`2600 Discovery`, `2602 WifiSet`, `2610 VideoPlay`, `2650 LanAuth`, `106
+SyncConn`, `107 ConnHB`), which is what makes the alignment trustworthy:
+
+| id | name | id | name | id | name | id | name |
+|---:|---|---:|---|---:|---|---:|---|
+| 6 | `GetConnServers` | 1029 | `Unbind` | 2638 | `SecretGet` | 2671 | `FirmwareRate` |
+| 9 | `TimetaskCmd` | 1053 | `DeviceGetUserList` | 2639 | `NotifySet` | 2680 | `EventRecordGet` |
+| 11 | `BigPpiotCmd` | 1101 | `CSCfg` | 2640 | `NotifyGet` | 2681 | `EventRecordSet` |
+| 12 | `PPMQGetClientID` | 1103 | `CSTokenGet` | 2641 | `MotionzoneSet` | 2685 | `GetNetworkInfo` |
+| 13 | `PPMQConnect` | 2600 | `Discovery` | 2642 | `MotionzoneGet` | 2686 | `OsdGet` |
+| 17 | `PPMQPublish` | 2601 | `WifiAPGet` | 2643 | `PspAdd` | 2687 | `OsdSet` |
+| 18 | `PPMQSubscribe` | 2602 | `WifiSet` | 2644 | `PspDel` | 2690 | `FileStart` |
+| 19 | `PPMQUnSub` | 2603 | `WifiGet` | 2645 | `PspList` | 2691 | `FileStop` |
+| 20 | `PPMQPing` | 2610 | `VideoPlay` | 2646 | `PspCall` | 2699 | `CustomCmd` |
+| 91 | `NatTest1` | 2611 | `VideoPause` | 2647 | `Reboot` | 2700 | `DirCreate` |
+| 92 | `NatTest2` | 2612 | `VideoQosSet` | 2648 | `Reset` | 2701 | `DirDel` |
+| 93 | `NatProbe` | 2613 | `FlipSet` | 2649 | `FlipGet` | 2702 | `DirEdit` |
+| 94 | `ReportNat` | 2614 | `AudioPlay` | 2650 | `LanAuth` | 2703 | `DirList` |
+| 95 | `ProbeConfig` | 2615 | `AudioPause` | 2651 | `TimedcruiseSet` | 2704 | `FileAdd` |
+| 101 | `P2PStepOne` | 2616 | `TalkbackPlay` | 2652 | `TimedcruiseGet` | 2705 | `FileDel` |
+| 102 | `NotifyConn` | 2617 | `TalkbackPause` | 2653 | `StorageInfo` | 2706 | `FileEdit` |
+| 103 | `P2PStepTwo` | 2621 | `HistoryPlanSet` | 2654 | `StorageFormat` | 2707 | `FileRecvRate` |
+| 104 | `P2PStepThree` | 2622 | `HistoryPlanGet` | 2655 | `StorageFormatRate` | 2708 | `FileThumList` |
+| 105 | `P2PHole` | 2623 | `HistoryDays` | 2656 | `LogSet` | 2709 | `FileAttrSet` |
+| 106 | `SyncConn` | 2624 | `HistoryDayList` | 2657 | `VolumeSet` | 2740 | `IotAlertList` |
+| 107 | `ConnHB` | 2625 | `HistoryPlay` | 2658 | `PowerFreqSet` | 2741 | `IotAlertSetRead` |
+| 110 | `RelayStep1` | 2626 | `HistoryPause` | 2659 | `PowerFreqGet` | 2780 | `ExecIOTCMD` |
+| 111 | `RelayStep2` | 2627 | `HistoryThumGet` | 2660 | `VolumeGet` | 2781 | `ExecTimetaskCMD` |
+| 112 | `RelayStep3` | 2628 | `HistoryDel` | 2661 | `AlarmSet` | 2801 | `LocalAssignDid` |
+| 130 | `RecordStart` | 2630 | `ConfigGet` | 2662 | `AlarmGet` | 11859 | `GateGetMDid` |
+| 131 | `RecordStop` | 2631 | `TimeSet` | 2663 | `Screenshot` | 11950 | `DeviceDataPut` |
+| 132 | `EventFile` | 2632 | `TimeGet` | 2664 | `PtzCtrl` | 12351 | `ScpeGetWhitelist` |
+| 143 | `LogAppend` | 2633 | `LedSet` | 2665 | `PirSet` | 12401 | `SSWPMapAdd` |
+| 601 | `GetServers` | 2634 | `LedGet` | 2666 | `PirGet` | 12407 | `SSWPMapCleanAdd` |
+| 603 | `PPMQDisconnect` | 2635 | `IRCutSet` | 2667 | `ChanState` | 27401 | `TAWeatherGet` |
+| 921 | `FirmwareCheck` | 2636 | `IRCutGet` | 2668 | `VideoChanChange` | 100009 | `PpiotCmd` |
+| 931 | `FirmwareChanCheck` | 2637 | `SecretSet` | 2670 | `FirmwareNotify` | 102780 | `ExecBigIOTCMD` |
+
+Note the ids are **not** consecutive with the names: they jump `2603 → 2610`
+(no 2604–2609), which is why an earlier extrapolation from the name order
+mispredicted `Discovery` as 2606 and `LanAuth` as 2646. Read them off the
+records, never by counting.
+
+The handful whose payloads we have decoded:
 
     2650  LanAuth        -> f2 user, f3 pwd; resp f1 = 32-hex session_key
      106  SyncConn       -> connection sync
@@ -63,13 +111,8 @@ straight off it. Cross-checked against the live-validated ids:
     2603  WifiGet        -> resp f2 = stored station ssid
     2610  VideoPlay      -> starts the MJPEG stream (type-6 frames)
     2614  AudioPlay      -> G.711 A-law, 8 kHz
-
-✅ **`Discovery`'s ID is 2600, confirmed** — its record (`0x13c088`) carries the
-device-info response descriptor. This retires the earlier **2606** guess, which
-assumed the name table was consecutive; the id table actually jumps `2603 →
-2610` (there is no 2604–2609), which is exactly why the consecutive
-extrapolation also mispredicted `LanAuth` as 2646. `DefaultDiscoveryCmd` is now
-2600; `--discovery-cmd` still overrides it.
+    2635  IRCutSet       -> f2 day/night mode (1 night, 2 day, 3 auto)
+    2636  IRCutGet       -> resp f1 = the stored mode
 
 **The camera's own heartbeat gates the stream.** After `SyncConn` the camera
 sends two unsolicited command-107 *requests*; at least one must be answered
@@ -79,11 +122,25 @@ varint, not zigzag), field 3 = the client's wall-clock time in milliseconds.
 
 Request payloads: `LanAuth` = field 2 `user` (string), field 3 `pwd` (string);
 `SyncConn` = field 1 `1`; `VideoPlay` = field 2 `QoS`; `AudioPlay` = empty;
-`WifiSet` = field 2 `ssid` (string), field 3 `passwd` (string). Across the
-message set, **field 1 is always the connection `channel`** (an int the client
-leaves 0) and the real payload starts at field 2 — which is why the working
-`LanAuth`/`VideoPlay`/`WifiSet` requests all begin numbering at 2.
-`LanAuth`'s response carries the session key in field 1.
+`WifiSet` = field 2 `ssid` (string), field 3 `passwd` (string); `IRCutSet` =
+field 2 `mode` (int). Across the message set, **field 1 is always the connection
+`channel`** (an int the client leaves 0) and the real payload starts at field 2
+— which is why the working `LanAuth`/`VideoPlay`/`WifiSet`/`IRCutSet` requests
+all begin numbering at 2. `LanAuth`'s response carries the session key in
+field 1.
+
+**One session at a time, and it needs a cooldown.** Port 20190 accepts the TCP
+connect, but a second `LanAuth` while another session is authenticated is
+refused with the socket closed — which surfaces as a bare `read: EOF` rather
+than an auth error, so a client will not fall through to its other username
+candidates. Reproduced three times against a live camera while the bridge stayed
+connected.
+
+The camera is also **not immediately ready after a session ends**: two
+back-to-back one-shot subcommands failed the same way, and the same commands
+succeeded with a ~8 s gap between them. So the slot is released lazily, some
+seconds after the socket closes. Stop `cheap-shot serve`, wait a few seconds,
+then run one client at a time.
 
 The camera clamps video to **640×480 MJPEG (format 4) @ ~10 fps**, QoS 5.
 
@@ -114,6 +171,61 @@ Implemented in the bridge as `camera.Client.SetWiFi` (`src/internal/camera/wifi.
 and the `cheap-shot wifi-config --ssid … --password …` subcommand, which
 authenticates over the AP session (`ConnectControl`, i.e. LanAuth + SyncConn with
 no VideoPlay) and sends the one command.
+
+## IRCutSet (2635) / IRCutGet (2636) — the day/night mode  ✓ recovered and live-confirmed
+
+This is the stock firmware's "night mode". The name is the vendor's and it
+misleads: there is **no mechanical IR-cut filter** on this hardware, and the
+command changes **no exposure, gain, AEC or frame-rate setting**. It does two
+things, and that is all.
+
+- **Command id 2635**, protobuf (type 4), request `{f1 channel:int32,
+  f2 mode:int32}` (descriptor at logical `0x140b48`), **empty response, code 0 =
+  accepted** — the same shape as `WifiSet`. `IRCutGet` is 2636: request carries
+  only the channel, response `f1` is the stored mode.
+- **Mode values:** `1` = night, `2` = day, `3` = auto. Anything else is stored
+  and matched by no branch, so the camera silently keeps its current mode.
+- **Handler `dev_on_ipc_IRCutSet` @ `0x7a640`** (Thumb) is a stub: it writes
+  field 2 into the global at `0x403948+0x36c` and logs
+  `dev_on_ipc_IRCutSet: %d` (`0x149541`). No GPIO, no I²C, no validation.
+  `dev_on_ipc_IRCutGet` @ `0x7a680` reads the same word back.
+- **The work happens in a 200 ms task at `0x833ac`**, which reads that global
+  through the getter `0x794d0` and dispatches:
+
+      mode 1  -> camera_intf_set_day_night(1)  + GPIO 7 driven high
+      mode 2  -> camera_intf_set_day_night(0)  + GPIO 7 driven low
+      mode 3  -> by the camera's clock (0x81a6c -> tm_hour):
+                 hour 7..17 inclusive = day, otherwise night
+
+  Auto works without internet: the camera's clock comes from the `ConnHB`
+  heartbeat, which the bridge already answers with our wall-clock time.
+- **`camera_intf_set_day_night` @ `0xc4f80`** switches on the sensor id byte.
+  Ours is GC0310/GC0312 (code `0x64`, branch at `0xc5208`; the two share a path
+  — `"GC0310(a3)/GC0312(b3) init finish"`), and the whole of night mode is:
+
+      day  : write(0xfe,0x00) write(0xd1,0x34) write(0xd2,0x34)
+      night: write(0xfe,0x00) write(0xd1,0x00) write(0xd2,0x00)
+
+  `0xfe` is the page select; `0xd1`/`0xd2` are **Cb/Cr saturation**. Night mode
+  is grayscale. The function also caches the last mode and returns early when it
+  is unchanged.
+- **The mode lives in RAM.** It survives the TCP session ending (confirmed: set
+  over one session, read back over a later one), and the init at `0x794f0`
+  writes `2` at boot — so every reboot returns the camera to day mode.
+
+**Live result (2026-09-17, on the powered camera in the dark).** `IRCutGet`
+returned `2` before any write, exactly the boot default read out of `0x794f0`;
+`IRCutSet(1)` was accepted and read back as `1`. In the frames, mean chroma went
+to **0.00** and returned to non-zero at mode 2, so the saturation write lands.
+Mean luma did **not** move (10.35 → 10.30 → 10.31 across day → night → day), so
+**nothing on GPIO 7 illuminates on our unit.** Since the saturation change
+proves the branch ran, and `day_night(1)` and the GPIO-7 helper are called back
+to back at `0x83406`, the GPIO write happened too — there is simply no working
+illuminator wired to it here.
+
+Implemented in the bridge as `camera.Client.SetIRCut` / `GetIRCut`
+(`src/internal/camera/ircut.go`) and the
+`cheap-shot night-mode --mode day|night|auto` subcommand.
 
 ## ✅ LanAuth SOLVED (2026-09-10) — the secret is `deckey(lslat)`, not `scode`
 

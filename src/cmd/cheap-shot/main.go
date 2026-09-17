@@ -27,6 +27,7 @@ usage:
   cheap-shot discover    [--udp] [--net CIDR]      find cameras on the LAN
   cheap-shot derive      --did D --scode S         print the LanAuth password
   cheap-shot wifi-config --ssid S --password P     make the camera join a WiFi network
+  cheap-shot night-mode  --mode day|night|auto     set the camera's day/night mode
   cheap-shot healthcheck [--url URL]               probe a running bridge
 
 Run any subcommand with -h for its flags.
@@ -50,6 +51,8 @@ func main() {
 		err = runDerive(os.Args[2:])
 	case "wifi-config":
 		err = runWifiConfig(ctx, os.Args[2:])
+	case "night-mode":
+		err = runNightMode(ctx, os.Args[2:])
 	case "healthcheck":
 		err = runHealthcheck(ctx, os.Args[2:])
 	case "-h", "--help", "help":

@@ -19,8 +19,10 @@ import (
 	"github.com/Yeti47/cheap-shot/src/internal/pprpc"
 )
 
-// RPC command IDs. The names come from the firmware's command table; the
-// numeric IDs are the live-validated ones for this protocol family.
+// RPC command IDs, read off the firmware's command registration table (logical
+// 0x13bca8, 128 records of 0x20 bytes) paired with the name-pointer table at
+// 0x5a524. Every ID here has also been confirmed live against the camera.
+// docs/protocol.md carries the full 128-entry table.
 const (
 	CmdSyncConn  = 106
 	CmdConnHB    = 107 // time sync / heartbeat, sent BY the camera
@@ -30,6 +32,8 @@ const (
 	CmdWifiGet   = 2603 // camera returns the stored station SSID
 	CmdVideoPlay = 2610
 	CmdAudioPlay = 2614
+	CmdIRCutSet  = 2635 // day/night mode; grayscale + GPIO, NOT exposure (see ircut.go)
+	CmdIRCutGet  = 2636 // read the stored day/night mode back
 	CmdLanAuth   = 2650
 )
 

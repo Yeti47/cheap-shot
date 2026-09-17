@@ -82,6 +82,12 @@ Other subcommands:
 
 - `cheap-shot discover` — slow, deliberate probe of port 20190 across the LAN
   (a *fast* sweep wedges this device's TCP stack).
+
+**The camera accepts only one authenticated session at a time, and needs a few
+seconds between them.** Stop `serve` before running `discover`, `wifi-config` or
+`night-mode` against it, and leave ~8s between consecutive one-shot commands; a
+`LanAuth` that arrives too early is refused by closing the socket, which shows
+up as `read: EOF`.
 - `cheap-shot derive --did … --scode …` — print the LanAuth password offline.
 - `cheap-shot wifi-config --ssid … --password …` — tell the camera to **join a
   router network as a station** instead of hosting its own AP, so it's reachable
@@ -90,6 +96,16 @@ Other subcommands:
   command. The camera then leaves AP mode and gets a new DHCP address on the
   target network (set a reservation and point the config's `host` at it). To
   undo, hold the camera's MODE button ~15s to force AP mode back.
+- `cheap-shot night-mode --mode day|night|auto` — set the camera's day/night
+  mode (`IRCutSet`, [`docs/protocol.md`](docs/protocol.md)); `--show` reads the
+  current one. Be clear about what this buys you: night mode **desaturates the
+  sensor to grayscale and drives a GPIO — it changes no exposure or gain
+  setting**, and on our unit nothing illuminates, so it will not rescue a dark
+  scene on its own. It is useful alongside an external IR illuminator, since the
+  GC0310 has no IR-cut filter and grayscale is the right rendering for IR light.
+  `auto` switches on the camera's own clock (07:00–17:59 = day). The mode lives
+  in RAM and resets to `day` on reboot. See
+  [`docs/findings.md`](docs/findings.md) for the full investigation.
 - `cheap-shot healthcheck` — used by the container's `HEALTHCHECK`.
 
 Device secrets never belong in the image: `did`/`lslat` come from `.env`, the
